@@ -28,23 +28,23 @@ device_property = {
     'Device_Country': 'P.R. China'
 }
 
-
 provisioning_host = "global.azure-devices-provisioning.net"
 id_scope = "{Scope Here}"
 registration_id = "{Device Name Here}"
 symmetric_key = "{Master Key Here}"
 
 async def main():
-
-    device_key = derive_device_key(registration_id,symmetric_key)
+    
+    # Connect using Device Provisioning Service (DPS)
+    device_key = derive_device_key(registration_id,symmetric_key) #Convert from original symmetric key to device key for further enrollment
+    #print(device_key)
     provisioning_device_client = ProvisioningDeviceClient.create_from_symmetric_key(
         provisioning_host=provisioning_host,
         registration_id=registration_id,
         id_scope=id_scope,
         symmetric_key=device_key
     )
-    registration_result = provisioning_device_client.register()
-
+    registration_result = await provisioning_device_client.register()
     print("The Provision Status is :", registration_result.status)
     print("The Provisioned ID is: ", registration_result.registration_state.device_id)
     print("The Assigned IoT Hub is: ", registration_result.registration_state.assigned_hub)
@@ -62,7 +62,8 @@ async def main():
         await device_client.connect()
 
     # Update Device Information on Start
-    device_client.patch_twin_reported_properties(device_property)
+    await device_client.patch_twin_reported_properties(device_property)
+    await device_client.patch_twin_reported_properties(location)
 
 
     # define method handler
@@ -82,12 +83,12 @@ async def main():
                 method_request, status, payload
             )
             # send response
-            device_client.send_method_response(method_response)
+            await device_client.send_method_response(method_response)
 
             device_property_new_interval = {
                     'Telemetry_Interval': telemetry_interval
                 }
-            device_client.patch_twin_reported_properties(device_property_new_interval)
+            await device_client.patch_twin_reported_properties(device_property_new_interval)
 
         elif method_request.name == "SetTelemetrySwitch":
             global send_data
@@ -102,12 +103,12 @@ async def main():
                 method_request, status, payload
             )
             # send response
-            device_client.send_method_response(method_response)
+            await device_client.send_method_response(method_response)
 
             device_property_new_switch = {
                     'Telemetry_Switch': send_data
                 }
-            device_client.patch_twin_reported_properties(device_property_new_switch)
+            await device_client.patch_twin_reported_properties(device_property_new_switch)
 
         else:
             # set response payload
@@ -145,7 +146,7 @@ async def main():
             device_property_new_fw = {
                 'Firmware_Info': fw_info
             }
-            device_client.patch_twin_reported_properties(device_property_new_fw)
+            await device_client.patch_twin_reported_properties(device_property_new_fw)
 
     # define behavior for receiving a message
     async def message_receive_handler(device_client):
@@ -183,23 +184,19 @@ async def main():
                 print(str(datetime.datetime.now()),
                         "Sending Telemetry: ", temp_telemetry_data)
 
+                if waltset > 2.5:
+                    alert_info = "Capacity Over 90%"
+                    alert_msg_raw = '{{"Alert": "{alert}"}}'
+                    alert_msg = Message(alert_msg_raw.format(alert = alert_info), content_encoding= "utf-8", content_type="application/json")
+                    alert_msg.custom_properties["Alert"] = "Capacity Over 90%"
+                    alert_msg.message_id = uuid.uuid4()
+                    await device_client.send_message(alert_msg)
+                    print(str(datetime.datetime.now()), "Sending Telemetry: ", alert_msg)
+
                 await device_client.send_message(device_telemetry_data)
                 await device_client.send_message(temp_telemetry_data)
 
-                if waltset > 2.5:
-                    alert_msg = Message("Electricy Capacity Over 90% !")
-                    alert_msg.custom_properties["Alert"] = "Capacity Over 90%"
-                    alert_msg.message_id = uuid.uuid4()
-                    alert_msg.content_encoding = "utf-8"
-                    alert_msg.content_type = "application/json"
-                    await device_client.send_message(alert_msg)
-
-    def location_property_patcher(device_client): 
-        location_information = location
-        device_client.patch_twin_reported_properties(location_information)
-        print("Device Location Information Updated !")
-
-
+                
     def send_telemetry_sync(device_client):
         loop = asyncio.new_event_loop()
         loop.run_until_complete(send_telemetry(device_client))
@@ -217,10 +214,6 @@ async def main():
     device_client.on_message_received = message_receive_handler
     
     send_telemetry_Thread = threading.Thread(target=send_telemetry_sync, args=(device_client,))
-    send_telemetry_Thread.daemon = True
-    send_telemetry_Thread.start()
-
-    send_telemetry_Thread = threading.Thread(target=location_property_patcher, args=(device_client,))
     send_telemetry_Thread.daemon = True
     send_telemetry_Thread.start()
 
