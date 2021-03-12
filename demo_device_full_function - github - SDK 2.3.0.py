@@ -92,8 +92,8 @@ async def main():
 
         elif method_request.name == "SetTelemetrySwitch":
             global send_data
-            print(str(datetime.datetime.now()), "Recevied Request \"SetTelemetrySwitch\", Setting Send_Data Switch to: " + str(send_data))
             send_data = method_request.payload
+            print(str(datetime.datetime.now()), "Recevied Request \"SetTelemetrySwitch\", Setting Send_Data Switch to: " + str(send_data))            
             payload = {"Time": str(datetime.datetime.now()),
                         "CommandStatus": "200 OK",
                         "CommandCallback": "The Send Data Status is: " + str(send_data)}
